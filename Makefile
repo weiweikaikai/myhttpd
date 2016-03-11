@@ -1,0 +1,62 @@
+PWD=$(shell pwd)
+CGI_PATH=$(PWD)/cgi_bin
+SER_BIN=myhttpd
+CLI_BIN=demo_client
+SER_SRC=httpd.c
+CLI_SRC=demo_client.c
+INCLUDE=.
+CC=gcc
+FLAGS=-o 
+LDFLAGS=-lpthread#-static
+LIB=
+
+.PHONY:all
+all:$(SER_BIN) $(CLI_BIN) cgi
+
+$(SER_BIN):$(SER_SRC)
+	@$(CC) $(FLAGS) $@ $^ $(LDFLAGS) -D_DEBUG_ -g
+$(CLI_BIN):$(CLI_SRC)
+	@$(CC) $(FLAGS) $@ $^ $(LDFLAGS)  -g
+
+.PHONY:cgi
+cgi:
+	@for name in `echo $(CGI_PATH)`;\
+	do\
+		cd $$name;\
+		make;\
+		cd -;\
+	done
+
+.PHONY:output
+output: all
+	@mkdir -p output/htdocs/cgi_bin
+	@cp myhttpd output
+	@cp demo_client output
+	@cp -rf conf output
+	@cp -rf log output
+	@cp README.md output
+	@cp start.sh output
+	@chmod +x start.sh
+	@cp -rf htdocs/* output/htdocs
+	@for name in `echo $(CGI_PATH)`;\
+	do\
+		cd $$name;\
+		make output;\
+		cd -;\
+	done
+.PHONY:clean
+clean:
+	@rm -rf $(SER_BIN) $(CLI_BIN) output
+	@for name in `echo $(CGI_PATH)`;\
+	do\
+		cd $$name;\
+		make clean;\
+		cd -;\
+	done
+
+
+
+
+
+
+
