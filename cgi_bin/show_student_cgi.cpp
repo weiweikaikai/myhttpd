@@ -4,7 +4,7 @@
 #include <string>
 #include <stdio.h>
 #include "sql_connect.h" //sql_connect.h
-
+#include<hiredis/hiredis.h>
 const std::string _remote_ip = "127.0.0.1";
 const std::string _remote_user = "root";
 const std::string _remote_passwd = "123456";
@@ -39,6 +39,7 @@ int main()
     	sql_connecter conn(_host, _user, _passwd, _db);
     	bool ret=conn.begin_connect();
     	conn.select_sql(header,_sql_data, curr_row);
+
 		std::cout<<"<table border=\"1\">"<<std::endl;
 		std::cout<<"<tr>"<<std::endl;
     	for(int i = 0; i<5; i++){
@@ -54,7 +55,26 @@ int main()
 			std::cout<<"</tr>"<<std::endl;
     	}
 		std::cout<<"</table>"<<std::endl;
+     	std::cout<<"</body>"<<std::endl;
 
-	std::cout<<"</body>"<<std::endl;
+	
+       redisContext *redisconn = redisConnect("127.0.0.1",6379);
+       if(redisconn != NULL && redisconn->err)
+       {
+	   	std::cout<<"redis connect err ["<<redisconn->err<<"] please open redis!!!!!"<<std::endl;
+       return 0;
+       }
+
+
+       redisReply *reply = (redisReply*)redisCommand(redisconn,"set foo 1234");
+        freeReplyObject(reply);
+
+        reply = (redisReply*)redisCommand(redisconn,"get foo");
+	    std::cout<<"<p>hello i am redis "<<reply->str<<"</p>"<<std::endl;
+         freeReplyObject(reply);
+
+       redisFree(redisconn);
 	std::cout<<"</html>"<<std::endl;
+
+
 }

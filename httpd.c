@@ -1,5 +1,130 @@
 #include "httpd.h"
 
+
+int sckServer_init(const char*ip,short port, int *listenfd)
+{
+	int 	ret = 0;
+	int mylistenfd;
+	struct sockaddr_in servaddr;
+	memset(&servaddr, 0, sizeof(servaddr));
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(port);
+	servaddr.sin_addr.s_addr = inet_addr(ip);
+	
+		
+	mylistenfd = socket(PF_INET, SOCK_STREAM, 0);
+	if (mylistenfd < 0)
+	{
+		ret = errno ;
+		printf("func socket() err:%d \n", ret);
+		return ret;
+	}
+		
+
+	int on = 1;
+	ret = setsockopt(mylistenfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on) );
+	if (ret < 0)
+	{
+		ret = errno ;
+		printf("func setsockopt() err:%d \n", ret);
+		return ret;
+	}
+	
+
+	ret = bind(mylistenfd, (struct sockaddr*)&servaddr, sizeof(servaddr));
+	if (ret < 0)
+	{
+		ret = errno ;
+		printf("func bind() err:%d \n", ret);
+		return ret;
+	}
+		
+	ret = listen(mylistenfd, SOMAXCONN);
+	if (ret < 0)
+	{
+		ret = errno ;
+		printf("func listen() err:%d \n", ret);
+		return ret;
+	}
+		
+	*listenfd = mylistenfd;
+
+	return 0;
+}
+
+/**
+ * accept_timeout - 带超时的accept
+ * @fd: 套接字
+ * @addr: 输出参数，返回对方地址
+ * @wait_seconds: 等待超时秒数，如果为0表示正常模式
+ * 成功（未超时）返回已连接套接字，超时返回-1并且errno = ETIMEDOUT
+ */
+int accept_timeout(int fd, struct sockaddr_in *addr, unsigned int wait_seconds)
+{
+	int ret=0;
+	socklen_t addrlen = sizeof(struct sockaddr_in);
+
+	if (wait_seconds > 0)
+	{
+		fd_set accept_fdset;
+		struct timeval timeout;
+		FD_ZERO(&accept_fdset);
+		FD_SET(fd, &accept_fdset);
+		timeout.tv_sec = wait_seconds;
+		timeout.tv_usec = 0;
+		do
+		{
+			ret = select(fd + 1, &accept_fdset, NULL, NULL, &timeout);
+		} while (ret < 0 && errno == EINTR);
+		if (ret == -1)
+			return -1;
+		else if (ret == 0)
+		{
+			errno = ETIMEDOUT;
+			return -1;
+		}
+	}
+
+	//一但检测出 有select事件发生，表示对等方完成了三次握手，客户端有新连接建立
+	//此时再调用accept将不会堵塞
+	if (addr != NULL)
+		ret = accept(fd, (struct sockaddr*)addr, &addrlen); //返回已连接套接字
+	else
+		ret = accept(fd, NULL, NULL);
+		if (ret == -1)
+		{
+			ret = errno;
+			printf("func accept() err:%d \n", ret);
+			return ret;
+		}
+	return ret;
+}
+
+int sckServer_accept(int listenfd, int *connfd,  int timeout)
+{
+	int	ret = 0;
+    struct sockaddr_in peeraddr;
+	memset(&peeraddr,0,sizeof(peeraddr));
+	ret = accept_timeout(listenfd, &peeraddr, (unsigned int) timeout);
+	if (ret < 0)
+	{
+		if (ret == -1 && errno == ETIMEDOUT)
+		{
+			ret=-1;
+			printf("func accept_timeout() timeout err:%d \n", ret);
+			return ret;
+		}
+		else
+		{
+			ret = errno;
+			printf("func accept_timeout() err:%d \n", ret);
+			return ret;
+		}
+	}	
+	*connfd = ret;
+	printf("a client online ip= %s port= %d\n ", inet_ntoa(peeraddr.sin_addr),ntohs(peeraddr.sin_port));
+	return 0;
+}
 void usage(const char *proc)
 {
 	printf("Usage : %s [PORT]\n", proc);
@@ -226,12 +351,14 @@ void exe_cgi(int sock_client, const char *path, const char *method,const char *q
 }
 
 //GET && POST
-void *accept_request(void *arg)
+//void *accept_request(void *arg)
+int accept_request(int arg)
 {
 
 	print_debug("get a new connect...\n");
 	pthread_detach(pthread_self());//detach
-	int sock_client = (int)arg;
+	//int sock_client = (int)arg;
+	int sock_client = arg;
 	
 	int  cgi = 0;
 	char *query_string = NULL;
@@ -247,7 +374,7 @@ void *accept_request(void *arg)
 
 	if(get_line(sock_client, buffer, sizeof(buffer)) < 0){
 		//echo_error_to_client();
-		return NULL;
+		return -1;
 	}
 
 	int i = 0; 
@@ -329,7 +456,7 @@ void *accept_request(void *arg)
 		}
 	}
 	close(sock_client);
-	return NULL;
+	return -1;
 }
 
 //if success return sock
@@ -375,19 +502,31 @@ int main(int argc, char *argv[])
 	//daemon();
 	int port = atoi(argv[2]);
 	const char *ip = argv[1];
-	int sock = start(ip,port);//listen socket
-	struct sockaddr_in client;
-	socklen_t len = 0;
-	daemon(1,1);
+
+	int sock =0;
+	int ret =sckServer_init(ip,port,&sock);//listen socket
+if(ret != 0)
+{
+     printf("fun sckserver_init err :\n");
+	 return ret;
+}
 	while(1){
-		int new_sock = accept(sock, (struct sockaddr*)&client, &len);
-		if( new_sock < 0 ){//accept error
-			print_log(__FUNCTION__, __LINE__, errno, strerror(errno));
+		int wait_second=10;
+		int new_sock =0;
+		ret=sckServer_accept(sock, &new_sock,wait_second);
+		if( ret !=0 ){//accept error
 			continue;
 		}
 		pthread_t new_thread;
-		pthread_create(&new_thread, NULL, accept_request, (void*)new_sock);
-	}
+   //ret=	pthread_create(&new_thread, NULL, accept_request, (void*)new_sock);
+     ret=accept_request(new_sock);
+                 if(ret < 0)
+                    {
+                  close(new_sock);
+                    break;
+                     }
+	 }
+             close(sock);
 	return 0;
 }
 

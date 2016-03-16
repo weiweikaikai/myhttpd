@@ -16,7 +16,7 @@ class sql_connecter{
 		bool select_sql(std::string [],std::string _out_str[][5], int &_out_row);
 
 		//bool updata_sql();
-		//bool delete_sql();
+		//bool delete_sql(const std::string &data);
 		//bool delete_table();
 		//bool creat_table();
 		//close remote link();
